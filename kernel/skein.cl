@@ -357,8 +357,8 @@ __constant static const sph_u64 SKEIN_IV512_256[8] = {
 
 
 
-__constant static const int ROT256[8][4] =
-{
+__constant static const int ROT256[8][4] = {
+    {
 	46, 36, 19, 37,
 	33, 27, 14, 42,
 	17, 49, 36, 39,
@@ -367,6 +367,7 @@ __constant static const int ROT256[8][4] =
 	13, 50, 10, 17,
 	25, 29, 39, 43,
 	8, 35, 56, 22,
+    }
 };
 
 __constant static const sph_u64 skein_ks_parity = 0x1BD11BDAA9FC1A22;
@@ -392,7 +393,7 @@ p6 += p7; p7 = SPH_ROTL64(p7, ROT256[ROT][3]);  p7 ^= p6; \
 	    Round512(p2, p1, p4, p7, p6, p5, p0, p3, 1); \
 	    Round512(p4, p1, p6, p3, p0, p5, p2, p7, 2); \
 	    Round512(p6, p1, p0, p7, p2, p5, p4, p3, 3); \
-	    p0 += h[((R)+0) % 9];  \ 
+	    p0 += h[((R)+0) % 9]; \
         p1 += h[((R)+1) % 9]; \
 		p2 += h[((R)+2) % 9]; \
 		p3 += h[((R)+3) % 9]; \
@@ -404,7 +405,7 @@ p6 += p7; p7 = SPH_ROTL64(p7, ROT256[ROT][3]);  p7 ^= p6; \
 		Round512(p2, p1, p4, p7, p6, p5, p0, p3, 5); \
 		Round512(p4, p1, p6, p3, p0, p5, p2, p7, 6); \
 		Round512(p6, p1, p0, p7, p2, p5, p4, p3, 7); \
-		p0 += h[((R)+1) % 9];   \ 
+		p0 += h[((R)+1) % 9]; \
 		p1 += h[((R)+2) % 9]; \
 		p2 += h[((R)+3) % 9]; \
 		p3 += h[((R)+4) % 9]; \
