@@ -12,8 +12,8 @@
 
 #include <unistd.h>
 
-#include "logging.h"
 #include "miner.h"
+#include "logging.h"
 
 bool opt_debug = false;
 bool opt_debug_console = false;
@@ -59,12 +59,20 @@ void applogsiz(int prio, int size, const char* fmt, ...)
 /* high-level logging function, based on global opt_log_level */
 void vapplogsiz(int prio, int size, const char* fmt, va_list args)
 {
-  if (opt_debug || prio != LOG_DEBUG) {
+  if ((opt_debug || prio != LOG_DEBUG)) {
     char *tmp42 = (char *)calloc(size + 1, 1);
     vsnprintf(tmp42, size, fmt, args);
     _applog(prio, tmp42, false);
     free(tmp42);
   }
+#ifdef DEV_DEBUG_MODE
+  else if(prio == LOG_DEBUG) {
+    char *tmp42 = (char *)calloc(size + 1, 1);
+    vsnprintf(tmp42, size, fmt, args);
+    __debug("", tmp42);
+    free(tmp42);
+  }
+#endif
 }
 
 /*
@@ -80,6 +88,13 @@ void _applog(int prio, const char *str, bool force)
   if (0) {}
 #endif
   else {
+
+#ifdef DEV_DEBUG_MODE
+    if(prio == LOG_DEBUG) {
+      __debug("", str);
+    }
+#endif
+
     bool write_console = opt_debug_console || (opt_verbose && prio != LOG_DEBUG) || prio <= opt_log_level;
     bool write_stderr = !isatty(fileno((FILE *)stderr));
     if (!(write_console || write_stderr))
@@ -142,4 +157,40 @@ void _applog(int prio, const char *str, bool force)
       mutex_unlock(&console_lock);
     }
   }
+}
+
+void __debug(const char *filename, const char *fmt, ...)
+{
+  FILE *f;
+  va_list args;
+
+  if (!(f = fopen(((!empty_string(filename))?filename:"debug.log"), "a+"))) {
+    return;
+  }
+
+  //prepend timestamp
+  struct timeval tv = {0, 0};
+  struct tm *tm;
+
+  cgtime(&tv);
+
+  const time_t tmp_time = tv.tv_sec;
+  tm = localtime(&tmp_time);
+
+  fprintf(f, "[%d-%02d-%02d %02d:%02d:%02d] ",
+    tm->tm_year + 1900,
+    tm->tm_mon + 1,
+    tm->tm_mday,
+    tm->tm_hour,
+    tm->tm_min,
+    tm->tm_sec);
+
+  va_start(args, fmt);
+  vfprintf(f, fmt, args);
+  va_end(args);
+
+  //add \n
+  fprintf(f, "\n");
+
+  fclose(f);
 }

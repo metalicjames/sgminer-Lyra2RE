@@ -47,9 +47,6 @@
     <ClCompile Include="..\logging.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\ocl.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\sgminer.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -69,9 +66,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\pool.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\algorithm.c">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\sph\aes_helper.c">
@@ -134,9 +128,6 @@
     <ClCompile Include="..\ocl\build_kernel.c">
       <Filter>Source Files\ocl</Filter>
     </ClCompile>
-    <ClCompile Include="..\ocl\patch_kernel.c">
-      <Filter>Source Files\ocl</Filter>
-    </ClCompile>
     <ClCompile Include="..\algorithm\animecoin.c">
       <Filter>Source Files\algorithm</Filter>
     </ClCompile>
@@ -191,11 +182,47 @@
     <ClCompile Include="..\algorithm\fresh.c">
       <Filter>Source Files\algorithm</Filter>
     </ClCompile>
+    <ClCompile Include="..\algorithm\whirlcoin.c">
+      <Filter>Source Files\algorithm</Filter>
+    </ClCompile>
     <ClCompile Include="..\sph\shabal.c">
       <Filter>Source Files\sph</Filter>
     </ClCompile>
     <ClCompile Include="..\sph\whirlpool.c">
       <Filter>Source Files\sph</Filter>
+    </ClCompile>
+    <ClCompile Include="..\ocl.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\algorithm.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\algorithm\neoscrypt.c">
+      <Filter>Source Files\algorithm</Filter>
+    </ClCompile>
+    <ClCompile Include="..\events.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\algorithm\whirlpoolx.c">
+      <Filter>Source Files\algorithm</Filter>
+    </ClCompile>
+    <ClCompile Include="..\algorithm\lyra2.c">
+      <Filter>Source Files\algorithm</Filter>
+    </ClCompile>
+    <ClCompile Include="..\algorithm\lyra2re.c">
+      <Filter>Source Files\algorithm</Filter>
+    </ClCompile>
+    <ClCompile Include="..\algorithm\sponge.c">
+      <Filter>Source Files\algorithm</Filter>
+    </ClCompile>
+    <ClCompile Include="..\algorithm\pluck.c">
+      <Filter>Source Files\algorithm</Filter>
+    </ClCompile>
+    <ClCompile Include="..\algorithm\lyra2rev2.c">
+      <Filter>Source Files\algorithm</Filter>
+    </ClCompile>
+    <ClCompile Include="..\algorithm\credits.c">
+      <Filter>Source Files\algorithm</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -307,9 +334,6 @@
     <ClInclude Include="..\ocl\build_kernel.h">
       <Filter>Header Files\ocl</Filter>
     </ClInclude>
-    <ClInclude Include="..\ocl\patch_kernel.h">
-      <Filter>Header Files\ocl</Filter>
-    </ClInclude>
     <ClInclude Include="..\algorithm\animecoin.h">
       <Filter>Header Files\algorithm</Filter>
     </ClInclude>
@@ -367,11 +391,47 @@
     <ClInclude Include="..\algorithm\fresh.h">
       <Filter>Header Files\algorithm</Filter>
     </ClInclude>
+    <ClInclude Include="..\algorithm\whirlcoin.h">
+      <Filter>Header Files\algorithm</Filter>
+    </ClInclude>
     <ClInclude Include="..\sph\sph_whirlpool.h">
       <Filter>Header Files\sph</Filter>
     </ClInclude>
     <ClInclude Include="..\sph\sph_shabal.h">
       <Filter>Header Files\sph</Filter>
+    </ClInclude>
+    <ClInclude Include="..\algorithm\neoscrypt.h">
+      <Filter>Header Files\algorithm</Filter>
+    </ClInclude>
+    <ClInclude Include="..\events.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\algorithm\whirlpoolx.h">
+      <Filter>Header Files\algorithm</Filter>
+    </ClInclude>
+    <ClInclude Include="..\algorithm\lyra2.h">
+      <Filter>Header Files\algorithm</Filter>
+    </ClInclude>
+    <ClInclude Include="..\algorithm\lyra2re.h">
+      <Filter>Header Files\algorithm</Filter>
+    </ClInclude>
+    <ClInclude Include="..\algorithm\sponge.h">
+      <Filter>Header Files\algorithm</Filter>
+    </ClInclude>
+    <ClInclude Include="..\algorithm\pluck.h">
+      <Filter>Header Files\algorithm</Filter>
+    </ClInclude>
+    <ClInclude Include="..\algorithm\lyra2rev2.h">
+      <Filter>Header Files\algorithm</Filter>
+    </ClInclude>
+    <ClInclude Include="..\algorithm\credits.h">
+      <Filter>Header Files\algorithm</Filter>
+    </ClInclude>
+    <ClInclude Include="..\sph\sha256_Y.h">
+      <Filter>Header Files\sph</Filter>
+    </ClInclude>
+    <ClInclude Include="..\algorithm\sysendian.h">
+      <Filter>Header Files\algorithm</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

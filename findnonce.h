@@ -2,7 +2,6 @@
 #define FINDNONCE_H
 
 #include "miner.h"
-#include "config.h"
 
 #define MAXTHREADS (0xFFFFFFFEULL)
 #define MAXBUFFERS (0x100)

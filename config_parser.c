@@ -89,6 +89,12 @@ static struct profile *add_profile()
   profile->name = strdup(buf);
   profile->algorithm.name[0] = '\0';
 
+  // intensity set to blank by default
+  buf[0] = 0;
+  profile->intensity = strdup(buf);
+  profile->xintensity = strdup(buf);
+  profile->rawintensity = strdup(buf);
+
   profiles = (struct profile **)realloc(profiles, sizeof(struct profile *) * (total_profiles + 2));
   profiles[total_profiles++] = profile;
 
@@ -141,13 +147,31 @@ static struct profile *get_profile(char *name)
 {
   int i;
 
-  for(i=total_profiles;i--;)
-  {
-    if(!strcasecmp(profiles[i]->name, name))
+  if (empty_string(name)) {
+    return NULL;
+  }
+
+  for (i=0;i<total_profiles;++i) {
+    if (!safe_cmp(profiles[i]->name, name)) {
       return profiles[i];
+    }
   }
 
   return NULL;
+}
+
+struct profile *get_gpu_profile(int gpuid)
+{
+  struct profile *profile;
+  struct pool *pool = pools[gpus[gpuid].thr[0]->pool_no];
+
+  if (!(profile = get_profile(pool->profile))) {
+    if (!(profile = get_profile(default_profile.name))) {
+      profile = &default_profile;
+    }
+  }
+
+  return profile;
 }
 
 /******* Default profile functions used during config parsing *****/
@@ -173,6 +197,14 @@ char *set_default_devices(const char *arg)
   return NULL;
 }
 
+char *set_default_kernelfile(const char *arg)
+{
+  applog(LOG_INFO, "Set default kernel file to %s", arg);
+  default_profile.algorithm.kernelfile = arg;
+
+  return NULL;
+}
+
 char *set_default_lookup_gap(const char *arg)
 {
   default_profile.lookup_gap = arg;
@@ -181,19 +213,19 @@ char *set_default_lookup_gap(const char *arg)
 
 char *set_default_intensity(const char *arg)
 {
-  default_profile.intensity = arg;
+  opt_set_charp(arg, &default_profile.intensity);
   return NULL;
 }
 
 char *set_default_xintensity(const char *arg)
 {
-  default_profile.xintensity = arg;
+  opt_set_charp(arg, &default_profile.xintensity);
   return NULL;
 }
 
 char *set_default_rawintensity(const char *arg)
 {
-  default_profile.rawintensity = arg;
+  opt_set_charp(arg, &default_profile.rawintensity);
   return NULL;
 }
 
@@ -276,7 +308,7 @@ char *set_profile_algorithm(const char *arg)
 {
   struct profile *profile = get_current_profile();
 
-  //applog(LOG_DEBUG, "Setting profile %s algorithm to %s", profile->name, arg);
+  applog(LOG_DEBUG, "Setting profile %s algorithm to %s", profile->name, arg);
   set_algorithm(&profile->algorithm, arg);
 
   return NULL;
@@ -286,6 +318,16 @@ char *set_profile_devices(const char *arg)
 {
   struct profile *profile = get_current_profile();
   profile->devices = arg;
+  return NULL;
+}
+
+char *set_profile_kernelfile(const char *arg)
+{
+  struct profile *profile = get_current_profile();
+
+  applog(LOG_DEBUG, "Setting profile %s algorithm kernel file to %s", profile->name, arg);
+  profile->algorithm.kernelfile = arg;
+
   return NULL;
 }
 
@@ -299,21 +341,21 @@ char *set_profile_lookup_gap(const char *arg)
 char *set_profile_intensity(const char *arg)
 {
   struct profile *profile = get_current_profile();
-  profile->intensity = arg;
+  opt_set_charp(arg, &profile->intensity);
   return NULL;
 }
 
 char *set_profile_xintensity(const char *arg)
 {
   struct profile *profile = get_current_profile();
-  profile->xintensity = arg;
+  opt_set_charp(arg, &profile->xintensity);
   return NULL;
 }
 
 char *set_profile_rawintensity(const char *arg)
 {
   struct profile *profile = get_current_profile();
-  profile->rawintensity = arg;
+  opt_set_charp(arg, &profile->rawintensity);
   return NULL;
 }
 
@@ -556,8 +598,10 @@ static struct opt_table *opt_find(struct opt_table *tbl, char *optname)
     //set url
     curl_easy_setopt(curl, CURLOPT_URL, url);
     //set write callback and fileinfo
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, fetch_remote_config_cb);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &file);
+    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1); // fail on 404 or other 4xx http codes
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30); // timeout after 30 secs to prevent being stuck
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &file); // stream to write data to
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, fetch_remote_config_cb);  // callback function to write to config file
 
     if((res = curl_easy_perform(curl)) != CURLE_OK)
       applog(LOG_ERR, "Fetch remote file failed: %s", curl_easy_strerror(res));
@@ -620,7 +664,7 @@ static char *parse_config_array(json_t *obj, char *parentkey, bool fileconf)
   json_t *val;
 
   //fix parent key - remove extra "s" to match opt names (e.g. --pool-gpu-memclock not --pools-gpu-memclock)
-  if(!strcasecmp(parentkey, "pools") || !strcasecmp(parentkey, "profiles"))
+  if(!strcasecmp(parentkey, "pools") || !strcasecmp(parentkey, "profiles") || !strcasecmp(parentkey, "events"))
     parentkey[(strlen(parentkey) - 1)] = '\0';
 
   json_array_foreach(obj, idx, val)
@@ -673,17 +717,20 @@ char *parse_config(json_t *val, const char *key, const char *parentkey, bool fil
       if((opt = opt_find(opt_config_table, optname)) != NULL)
       {
         //strings
-        if ((opt->type & OPT_HASARG) && json_is_string(val))
+        if ((opt->type & OPT_HASARG) && json_is_string(val)) {
           err = opt->cb_arg(json_string_value(val), opt->u.arg);
+        }
         //boolean values
-        else if ((opt->type & OPT_NOARG) && json_is_true(val))
+        else if ((opt->type & OPT_NOARG) && json_is_true(val)) {
           err = opt->cb(opt->u.arg);
-        else
+        }
+        else {
           err = "Invalid value";
+        }
       }
-      else
+      else {
         err = "Invalid option";
-
+      }
       break;
   }
 
@@ -714,37 +761,71 @@ char *load_config(const char *arg, const char *parentkey, void __maybe_unused *u
   json_t *config;
 
   #ifdef HAVE_LIBCURL
-    //if detected as url
-    if((strstr(arg, "http://") != NULL) || (strstr(arg, "https://") != NULL) || (strstr(arg, "ftp://") != NULL))
-    {
-      //download config file locally and reset arg to it so we can parse it
-      if((arg = fetch_remote_config(arg)) == NULL)
-        return NULL;
+    int retry = opt_remoteconf_retry;
+    const char *url;
+
+    // if detected as url
+    if ((strstr(arg, "http://") != NULL) || (strstr(arg, "https://") != NULL) || (strstr(arg, "ftp://") != NULL)) {
+      url = strdup(arg);
+
+      do {
+        // wait for next retry
+        if (retry < opt_remoteconf_retry) {
+          sleep(opt_remoteconf_wait);
+        }
+
+        // download config file locally and reset arg to it so we can parse it
+        if ((arg = fetch_remote_config(url)) != NULL) {
+          break;
+        }
+
+        --retry;
+      } while (retry);
+
+      // file not downloaded... abort
+      if (arg == NULL) {
+        // if we should use last downloaded copy...
+        if (opt_remoteconf_usecache) {
+          char *p;
+
+          // extract filename out of url
+          if ((p = (char *)strrchr(url, '/')) == NULL) {
+            quit(1, "%s: invalid URL.", url);
+          }
+
+          arg = p+1;
+        } else {
+          quit(1, "%s: unable to download config file.", url);
+        }
+      }
     }
   #endif
 
-  //most likely useless but leaving it here for now...
-  if(!cnfbuf)
+  // most likely useless but leaving it here for now...
+  if (!cnfbuf) {
     cnfbuf = strdup(arg);
+  }
 
-  //no need to restrict the number of includes... if it causes problems, restore it later
+  // no need to restrict the number of includes... if it causes problems, restore it later
   /*if(++include_count > JSON_MAX_DEPTH)
     return JSON_MAX_DEPTH_ERR;
   */
 
-  //check if the file exists
-  if(access(arg, F_OK) == -1)
+  // check if the file exists
+  if (access(arg, F_OK) == -1) {
     quit(1, "%s: file not found.", arg);
+  }
 
-#if JANSSON_MAJOR_VERSION > 1
-  config = json_load_file(arg, 0, &err);
-#else
-  config = json_load_file(arg, &err);
-#endif
+  #if JANSSON_MAJOR_VERSION > 1
+    config = json_load_file(arg, 0, &err);
+  #else
+    config = json_load_file(arg, &err);
+  #endif
 
-  //if json root is not an object, error out
-  if(!json_is_object(config))
+  // if json root is not an object, error out
+  if (!json_is_object(config)) {
     return set_last_json_error("Error: JSON decode of file \"%s\" failed:\n %s", arg, err.text);
+  }
 
   config_loaded = true;
 
@@ -776,6 +857,20 @@ void load_default_config(void)
 /*******************************************
  * Startup functions
  * *****************************************/
+
+void init_default_profile()
+{
+  char buf[32];
+
+  buf[0] = 0;
+
+  default_profile.name = strdup(buf);
+  default_profile.algorithm.name[0] = 0;
+  default_profile.algorithm.kernelfile = strdup(buf);
+  default_profile.intensity = strdup(buf);
+  default_profile.xintensity = strdup(buf);
+  default_profile.rawintensity = strdup(buf);
+}
 
 // assign default settings from default profile if set
 void load_default_profile()
@@ -946,6 +1041,19 @@ void apply_pool_profile(struct pool *pool)
   }
   applog(LOG_DEBUG, "Pool %i Algorithm set to \"%s\"", pool->pool_no, pool->algorithm.name);
 
+  // if the pool doesn't have a specific kernel file...
+  if (empty_string(pool->algorithm.kernelfile)) {
+    // ...but profile does, apply it to the pool
+    if (!empty_string(profile->algorithm.kernelfile)) {
+        pool->algorithm.kernelfile = profile->algorithm.kernelfile;
+        applog(LOG_DEBUG, "Pool %i Kernel File set to \"%s\"", pool->pool_no, pool->algorithm.kernelfile);
+    // ...or default profile does, apply it to the pool
+    } else if (!empty_string(default_profile.algorithm.kernelfile)) {
+        pool->algorithm.kernelfile = default_profile.algorithm.kernelfile;
+        applog(LOG_DEBUG, "Pool %i Kernel File set to \"%s\"", pool->pool_no, pool->algorithm.kernelfile);
+    }
+  }
+
   if(pool_cmp(pool->devices, default_profile.devices))
   {
     if(!empty_string(profile->devices))
@@ -964,39 +1072,76 @@ void apply_pool_profile(struct pool *pool)
   }
   applog(LOG_DEBUG, "Pool %i lookup gap set to \"%s\"", pool->pool_no, pool->lookup_gap);
 
-  if(pool_cmp(pool->intensity, default_profile.intensity))
-  {
-    if(!empty_string(profile->intensity))
-        pool->intensity = profile->intensity;
-    else
-        pool->intensity = default_profile.intensity;
-  }
-  applog(LOG_DEBUG, "Pool %i Intensity set to \"%s\"", pool->pool_no, pool->intensity);
+  int int_type = 0;
 
-  if(pool_cmp(pool->xintensity, default_profile.xintensity))
-  {
-    if(!empty_string(profile->xintensity))
-        pool->xintensity = profile->xintensity;
-    else
-        pool->xintensity = default_profile.xintensity;
+  // FIXME: ifs from hell...
+  // First look for an existing intensity on pool
+  if (!empty_string(pool->rawintensity)) {
+    int_type = 2;
   }
-  applog(LOG_DEBUG, "Pool %i XIntensity set to \"%s\"", pool->pool_no, pool->xintensity);
-
-  if(pool_cmp(pool->rawintensity, default_profile.rawintensity))
-  {
-    if(!empty_string(profile->rawintensity))
-        pool->rawintensity = profile->rawintensity;
-    else
+  else if (!empty_string(pool->xintensity)) {
+    int_type = 1;
+  }
+  else if (!empty_string(pool->intensity)) {
+    int_type = 0;
+  }
+  else {
+    //no intensity found on pool... check if the profile has one and use it...
+    if (!empty_string(profile->rawintensity)) {
+      int_type = 2;
+      pool->rawintensity = profile->rawintensity;
+    }
+    else if (!empty_string(profile->xintensity)) {
+      int_type = 1;
+      pool->xintensity = profile->xintensity;
+    }
+    else if (!empty_string(profile->intensity)) {
+      int_type = 0;
+      pool->intensity = profile->intensity;
+    }
+    else {
+      //nothing in profile... check default profile/globals
+      if (!empty_string(default_profile.rawintensity)) {
+        int_type = 2;
         pool->rawintensity = default_profile.rawintensity;
+      }
+      else if (!empty_string(default_profile.xintensity)) {
+        int_type = 1;
+        pool->xintensity = default_profile.xintensity;
+      }
+      else if (!empty_string(default_profile.intensity)) {
+        int_type = 0;
+        pool->intensity = default_profile.intensity;
+      }
+      else {
+        //nothing anywhere? default to sgminer default of 8
+        int_type = 0;
+        pool->intensity = strdup("8");
+      }
+    }
   }
-  applog(LOG_DEBUG, "Pool %i Raw Intensity set to \"%s\"", pool->pool_no, pool->rawintensity);
+
+  switch(int_type) {
+    case 2:
+      applog(LOG_DEBUG, "Pool %d Raw Intensity set to \"%s\"", pool->pool_no, pool->rawintensity);
+      break;
+
+    case 1:
+      applog(LOG_DEBUG, "Pool %d XIntensity set to \"%s\"", pool->pool_no, pool->xintensity);
+      break;
+
+    default:
+      applog(LOG_DEBUG, "Pool %d Intensity set to \"%s\"", pool->pool_no, pool->intensity);
+      break;
+  }
 
   if(pool_cmp(pool->thread_concurrency, default_profile.thread_concurrency))
   {
-    if(!empty_string(profile->thread_concurrency))
-        pool->thread_concurrency = profile->thread_concurrency;
-    else
-        pool->thread_concurrency = default_profile.thread_concurrency;
+    /* allow empty string TC
+      if(!empty_string(profile->thread_concurrency))*/
+      pool->thread_concurrency = profile->thread_concurrency;
+/*    else
+        pool->thread_concurrency = default_profile.thread_concurrency;*/
   }
   applog(LOG_DEBUG, "Pool %i Thread Concurrency set to \"%s\"", pool->pool_no, pool->thread_concurrency);
 
@@ -1234,22 +1379,32 @@ static json_t *build_pool_json()
     if (!build_pool_json_add(obj, "device", pool->devices, profile->devices, default_profile.devices, pool->pool_no))
       return NULL;
 
+    // kernelfile
+    if (!build_pool_json_add(obj, "kernelfile", pool->algorithm.kernelfile, profile->algorithm.kernelfile, default_profile.algorithm.kernelfile, pool->pool_no))
+      return NULL;
+
     // lookup-gap
     if (!build_pool_json_add(obj, "lookup-gap", pool->lookup_gap, profile->lookup_gap, default_profile.lookup_gap, pool->pool_no))
       return NULL;
 
     // rawintensity
-    if (!empty_string(pool->rawintensity))
-      if (!build_pool_json_add(obj, "rawintensity", pool->rawintensity, profile->rawintensity, default_profile.rawintensity, pool->pool_no))
+    if (!empty_string(pool->rawintensity)) {
+      if (!build_pool_json_add(obj, "rawintensity", pool->rawintensity, profile->rawintensity, default_profile.rawintensity, pool->pool_no)) {
         return NULL;
+      }
+    }
     // xintensity
-    else if (!empty_string(pool->xintensity))
-      if (!build_pool_json_add(obj, "xintensity", pool->xintensity, profile->xintensity, default_profile.xintensity, pool->pool_no))
+    else if (!empty_string(pool->xintensity)) {
+      if (!build_pool_json_add(obj, "xintensity", pool->xintensity, profile->xintensity, default_profile.xintensity, pool->pool_no)) {
         return NULL;
+      }
+    }
     // intensity
-    else
-      if (!build_pool_json_add(obj, "intensity", pool->intensity, profile->intensity, default_profile.intensity, pool->pool_no))
+    else if (!empty_string(pool->intensity)) {
+      if (!build_pool_json_add(obj, "intensity", pool->intensity, profile->intensity, default_profile.intensity, pool->pool_no)) {
         return NULL;
+      }
+    }
 
     // shaders
     if (!build_pool_json_add(obj, "shaders", pool->shaders, profile->shaders, default_profile.shaders, pool->pool_no))
@@ -1308,12 +1463,14 @@ static json_t *build_profile_json_add(json_t *object, const char *key, const cha
     val = str_compare;
 
   // no value, return...
-  if(empty_string(val))
+  if (empty_string(val)) {
     return object;
+  }
 
   //if the value is the same as default profile and, the current profile is not default profile, return...
-  if((safe_cmp(str_compare, val) == 0) && isdefault == false)
+  if ((safe_cmp(str_compare, val) == 0) && isdefault == false) {
     return object;
+  }
 
   json_profile_add(object, key, json_string(val), parentkey, id);
 
@@ -1338,22 +1495,32 @@ static json_t *build_profile_settings_json(json_t *object, struct profile *profi
   if (!build_profile_json_add(object, "device", profile->devices, default_profile.devices, isdefault, parentkey, profile->profile_no))
     return NULL;
 
+  // kernelfile
+  if (!build_profile_json_add(object, "kernelfile", profile->algorithm.kernelfile, default_profile.algorithm.kernelfile, isdefault, parentkey, profile->profile_no))
+    return NULL;
+
   // lookup-gap
   if (!build_profile_json_add(object, "lookup-gap", profile->lookup_gap, default_profile.lookup_gap, isdefault, parentkey, profile->profile_no))
     return NULL;
 
   // rawintensity
-  if (!empty_string(profile->rawintensity))
-    if(!build_profile_json_add(object, "rawintensity", profile->rawintensity, default_profile.rawintensity, isdefault, parentkey, profile->profile_no))
+  if (!empty_string(profile->rawintensity) || (isdefault && !empty_string(default_profile.rawintensity))) {
+    if(!build_profile_json_add(object, "rawintensity", profile->rawintensity, default_profile.rawintensity, isdefault, parentkey, profile->profile_no)) {
       return NULL;
+    }
+  }
   // xintensity
-  else if (!empty_string(profile->xintensity))
-    if(!build_profile_json_add(object, "xintensity", profile->xintensity, default_profile.xintensity, isdefault, parentkey, profile->profile_no))
+  else if (!empty_string(profile->xintensity) || (isdefault && !empty_string(default_profile.xintensity))) {
+    if(!build_profile_json_add(object, "xintensity", profile->xintensity, default_profile.xintensity, isdefault, parentkey, profile->profile_no)) {
       return NULL;
+    }
+  }
   // intensity
-  else if (!empty_string(profile->intensity))
-    if(!build_profile_json_add(object, "intensity", profile->intensity, default_profile.intensity, isdefault, parentkey, profile->profile_no))
+  else if (!empty_string(profile->intensity) || (isdefault && !empty_string(default_profile.intensity))) {
+    if(!build_profile_json_add(object, "intensity", profile->intensity, default_profile.intensity, isdefault, parentkey, profile->profile_no)) {
       return NULL;
+    }
+  }
 
   //shaders
   if (!build_profile_json_add(object, "shaders", profile->shaders, default_profile.shaders, isdefault, parentkey, profile->profile_no))
@@ -2022,3 +2189,135 @@ void api_pool_profile(struct io_data *io_data, __maybe_unused SOCKETTYPE c, char
 
   message(io_data, MSG_CHPOOLPR, pool->pool_no, profile->name, isjson);
 }
+
+
+void update_config_intensity(struct profile *profile)
+{
+  char buf[256] = { 0 };
+  int i;
+
+  for (i = 0; i<nDevs; ++i) {
+    if (gpus[i].dynamic) {
+      sprintf(buf, "%s%sd", buf, ((i > 0)?",":""));
+    }
+    else {
+      sprintf(buf, "%s%s%d", buf, ((i > 0)?",":""), gpus[i].intensity);
+    }
+  }
+
+  if (profile->intensity && profile->intensity != default_profile.intensity) {
+    free(profile->intensity);
+  }
+
+  profile->intensity = strdup((const char *)buf);
+
+  if (profile->xintensity) {
+    profile->xintensity[0] = 0;
+  }
+
+  if (profile->rawintensity) {
+    profile->rawintensity[0] = 0;
+  }
+
+  // if this profile is also default profile, make sure to set the default_profile structure value
+  if (!safe_cmp(profile->name, default_profile.name)) {
+    if (default_profile.intensity) {
+      free(default_profile.intensity);
+    }
+
+    default_profile.intensity = strdup((const char *)buf);
+
+    if (default_profile.xintensity) {
+      default_profile.xintensity[0] = 0;
+    }
+
+    if (default_profile.rawintensity) {
+      default_profile.rawintensity[0] = 0;
+    }
+  }
+}
+
+void update_config_xintensity(struct profile *profile)
+{
+  int i;
+  char buf[255];
+  memset(buf, 0, 255);
+
+  for (i = 0; i<nDevs; ++i) {
+    sprintf(buf, "%s%s%d", buf, ((i > 0)?",":""), gpus[i].xintensity);
+  }
+
+  if (profile->intensity) {
+    profile->intensity[0] = 0;
+  }
+
+  if (profile->xintensity) {
+    free(profile->xintensity);
+  }
+
+  profile->xintensity = strdup((const char *)buf);
+
+  if (profile->rawintensity) {
+    profile->rawintensity[0] = 0;
+  }
+
+  // if this profile is also default profile, make sure to set the default_profile structure value
+  if (!safe_cmp(profile->name, default_profile.name)) {
+    if (default_profile.intensity) {
+      default_profile.intensity[0] = 0;
+    }
+
+    if (default_profile.xintensity) {
+      free(default_profile.xintensity);
+    }
+
+    default_profile.xintensity = strdup((const char *)buf);
+
+    if (default_profile.rawintensity) {
+      default_profile.rawintensity[0] = 0;
+    }
+  }
+}
+
+void update_config_rawintensity(struct profile *profile)
+{
+  int i;
+  char buf[255];
+  memset(buf, 0, 255);
+
+  for (i = 0; i<nDevs; ++i) {
+    sprintf(buf, "%s%s%d", buf, ((i > 0)?",":""), gpus[i].rawintensity);
+  }
+
+  if (profile->intensity) {
+    profile->intensity[0] = 0;
+  }
+
+  if (profile->xintensity) {
+    profile->xintensity[0] = 0;
+  }
+
+  if (profile->rawintensity) {
+    free(profile->rawintensity);
+  }
+
+  profile->rawintensity = strdup((const char *)buf);
+
+  // if this profile is also default profile, make sure to set the default_profile structure value
+  if (!safe_cmp(profile->name, default_profile.name)) {
+    if (default_profile.intensity) {
+      default_profile.intensity[0] = 0;
+    }
+
+    if (default_profile.xintensity) {
+      default_profile.xintensity[0] = 0;
+    }
+
+    if (default_profile.rawintensity) {
+      free(default_profile.rawintensity);
+    }
+
+    default_profile.rawintensity = strdup((const char *)buf);
+  }
+}
+

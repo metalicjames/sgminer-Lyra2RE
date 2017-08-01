@@ -3,13 +3,12 @@
 
 #include "config.h"
 
-#include "algorithm.h"
-
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/time.h>
 #include <pthread.h>
 #include <jansson.h>
+#include <ccan/opt/opt.h>
 #ifdef HAVE_LIBCURL
 #include <curl/curl.h>
 #else
@@ -23,20 +22,27 @@ extern char *curly;
 #endif
 #include <sched.h>
 
+#if defined(USE_GIT_VERSION) && defined(GIT_VERSION)
+#undef VERSION
+#define VERSION GIT_VERSION
+#endif
+
+#ifdef BUILD_NUMBER
+#define CGMINER_VERSION VERSION "-" BUILD_NUMBER
+#else
+#define CGMINER_VERSION VERSION
+#endif
+
 #include "elist.h"
 #include "uthash.h"
 #include "logging.h"
 #include "util.h"
+#include "algorithm.h"
+
 #include <sys/types.h>
 #ifndef WIN32
 # include <sys/socket.h>
 # include <netdb.h>
-#endif
-
-#ifdef __APPLE_CC__
-#include <OpenCL/opencl.h>
-#else
-#include <CL/cl.h>
 #endif
 
 #ifdef STDC_HEADERS
@@ -123,8 +129,6 @@ static inline int fsync (int fd)
 #ifdef HAVE_ADL
  #include "ADL_SDK/adl_sdk.h"
 #endif
-
-#include <ccan/opt/opt.h>
 
 #if (!defined(WIN32) && ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 3))) \
     || (defined(WIN32) && ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7)))
@@ -265,6 +269,11 @@ DRIVER_PARSE_COMMANDS(DRIVER_PROTOTYPE)
 #ifndef strtobool
   #define strtobool(str) ((str && (!strcasecmp(str, "true") || !strcasecmp(str, "yes") || !strcasecmp(str, "1")))?true:false)
 #endif
+
+extern int opt_remoteconf_retry;
+extern int opt_remoteconf_wait;
+extern bool opt_remoteconf_usecache;
+
 
 enum alive {
   LIFE_WELL,
@@ -707,6 +716,16 @@ static inline void flip80(void *dest_p, const void *src_p)
     dest[i] = swab32(src[i]);
 }
 
+static inline void flip112(void *dest_p, const void *src_p)
+{
+  uint32_t *dest = (uint32_t *)dest_p;
+  const uint32_t *src = (uint32_t *)src_p;
+  int i;
+
+  for (i = 0; i < 28; i++)
+    dest[i] = swab32(src[i]);
+}
+
 static inline void flip128(void *dest_p, const void *src_p)
 {
   uint32_t *dest = (uint32_t *)dest_p;
@@ -715,6 +734,49 @@ static inline void flip128(void *dest_p, const void *src_p)
 
   for (i = 0; i < 32; i++)
     dest[i] = swab32(src[i]);
+}
+
+static inline void flip168(void *dest_p, const void *src_p)
+{
+	uint32_t *dest = (uint32_t *)dest_p;
+	const uint32_t *src = (uint32_t *)src_p;
+	int i;
+
+	for (i = 0; i < 42; i++)
+		dest[i] = swab32(src[i]);
+}
+
+static inline void flip180(void *dest_p, const void *src_p)
+{
+	uint32_t *dest = (uint32_t *)dest_p;
+	const uint32_t *src = (uint32_t *)src_p;
+	int i;
+
+	for (i = 0; i < 45; i++)
+		dest[i] = swab32(src[i]);
+}
+
+static inline void flip196(void *dest_p, const void *src_p)
+{
+	uint32_t *dest = (uint32_t *)dest_p;
+	const uint32_t *src = (uint32_t *)src_p;
+	int i;
+
+	for (i = 0; i < 49; i++)
+		dest[i] = swab32(src[i]);
+}
+
+/*
+ * Encode a length len/4 vector of (uint32_t) into a length len vector of
+ * (unsigned char) in big-endian form.  Assumes len is a multiple of 4.
+ */
+static inline void
+be32enc_vect(uint32_t *dst, const uint32_t *src, uint32_t len)
+{
+  uint32_t i;
+
+  for (i = 0; i < len; i++)
+    dst[i] = htobe32(src[i]);
 }
 
 /* For flipping to the correct endianness if necessary */
@@ -728,6 +790,19 @@ static inline void endian_flip128(void *dest_p, const void *src_p)
 {
   flip128(dest_p, src_p);
 }
+static inline void endian_flip168(void *dest_p, const void *src_p)
+{
+  flip168(dest_p, src_p);
+}
+static inline void endian_flip180(void *dest_p, const void *src_p)
+{
+  flip180(dest_p, src_p);
+}
+static inline void endian_flip196(void *dest_p, const void *src_p)
+{
+  flip196(dest_p, src_p);
+}
+
 #else
 static inline void
 endian_flip32(void __maybe_unused *dest_p, const void __maybe_unused *src_p)
@@ -738,7 +813,20 @@ static inline void
 endian_flip128(void __maybe_unused *dest_p, const void __maybe_unused *src_p)
 {
 }
+static inline void
+endian_flip168(void __maybe_unused *dest_p, const void __maybe_unused *src_p)
+{
+}
+static inline void
+endian_flip180(void __maybe_unused *dest_p, const void __maybe_unused *src_p)
+{
+}
+static inline void
+endian_flip196(void __maybe_unused *dest_p, const void __maybe_unused *src_p)
+{
+}
 #endif
+
 
 extern double cgpu_runtime(struct cgpu_info *cgpu);
 extern void _quit(int status);
@@ -1025,6 +1113,7 @@ extern char *sgminer_path;
 extern int opt_shares;
 extern bool opt_fail_only;
 extern int opt_fail_switch_delay;
+extern int opt_watchpool_refresh;
 extern bool opt_autofan;
 extern bool opt_autoengine;
 extern bool use_curses;
@@ -1099,7 +1188,8 @@ extern pthread_cond_t restart_cond;
 
 extern void clear_stratum_shares(struct pool *pool);
 extern void clear_pool_work(struct pool *pool);
-extern void set_target(unsigned char *dest_target, double diff, double diff_multiplier2);
+extern void set_target(unsigned char *dest_target, double diff, double diff_multiplier2, const int thr_id);
+extern void set_target_neoscrypt(unsigned char *target, double diff, const int thr_id);
 
 extern void kill_work(void);
 
@@ -1128,8 +1218,8 @@ extern bool add_pool_details(struct pool *pool, bool live, char *url, char *user
 #define MAX_GPUDEVICES 16
 #define MAX_DEVICES 4096
 
-#define MIN_INTENSITY 8
-#define MIN_INTENSITY_STR "8"
+#define MIN_INTENSITY 4
+#define MIN_INTENSITY_STR "4"
 #define MAX_INTENSITY 31
 #define MAX_INTENSITY_STR "31"
 #define MIN_XINTENSITY 1
@@ -1178,7 +1268,6 @@ extern char current_hash[68];
 extern double current_diff;
 extern double best_diff;
 extern struct timeval block_timeval;
-extern char *workpadding;
 
 //config options table
 extern struct opt_table opt_config_table[];
@@ -1188,6 +1277,8 @@ typedef struct _dev_blk_ctx {
   cl_uint ctx_e; cl_uint ctx_f; cl_uint ctx_g; cl_uint ctx_h;
   cl_uint cty_a; cl_uint cty_b; cl_uint cty_c; cl_uint cty_d;
   cl_uint cty_e; cl_uint cty_f; cl_uint cty_g; cl_uint cty_h;
+  cl_uint cty_i; cl_uint cty_j; cl_uint cty_k; cl_uint cty_l;
+  cl_uint cty_m; cl_uint cty_n; cl_uint cty_o; cl_uint cty_p;
   cl_uint merkle; cl_uint ntime; cl_uint nbits; cl_uint nonce;
   cl_uint fW0; cl_uint fW1; cl_uint fW2; cl_uint fW3; cl_uint fW15;
   cl_uint fW01r; cl_uint fcty_e; cl_uint fcty_e2;
@@ -1273,6 +1364,7 @@ struct pool {
   bool remove_at_start;
   bool removed;
   bool lp_started;
+  bool backup;
 
   char *hdr_path;
   char *lp_url;
@@ -1296,20 +1388,20 @@ struct pool {
 
   char *profile;
   algorithm_t algorithm;
-    const char *devices;
-    const char *intensity;
-    const char *xintensity;
-    const char *rawintensity;
-    const char *lookup_gap;
-    const char *gpu_engine;
-    const char *gpu_memclock;
-    const char *gpu_threads;
-    const char *gpu_fan;
-    const char *gpu_powertune;
-    const char *gpu_vddc;
-    const char *shaders;
-    const char *thread_concurrency;
-    const char *worksize;
+  const char *devices;
+  char *intensity;
+  char *xintensity;
+  char *rawintensity;
+  const char *lookup_gap;
+  const char *gpu_engine;
+  const char *gpu_memclock;
+  const char *gpu_threads;
+  const char *gpu_fan;
+  const char *gpu_powertune;
+  const char *gpu_vddc;
+  const char *shaders;
+  const char *thread_concurrency;
+  const char *worksize;
 
   pthread_mutex_t pool_lock;
   cglock_t data_lock;
@@ -1383,6 +1475,7 @@ struct pool {
   unsigned char *coinbase;
   size_t nonce2_offset;
   unsigned char header_bin[128];
+  double next_diff;
   int merkle_offset;
 
   struct timeval tv_lastwork;
@@ -1396,7 +1489,7 @@ struct pool {
 #define GETWORK_MODE_GBT 'G'
 
 struct work {
-  unsigned char data[128];
+  unsigned char data[256];
   unsigned char midstate[32];
   unsigned char target[32];
   unsigned char hash[32];
@@ -1480,7 +1573,13 @@ extern void _wlogprint(const char *str);
 extern int curses_int(const char *query);
 extern char *curses_input(const char *query);
 extern void kill_work(void);
-extern void switch_pools(struct pool *selected);
+
+//helper macro to preserve existing code
+#ifndef switch_pools
+  #define switch_pools(p) __switch_pools(p, true)
+#endif
+extern void __switch_pools(struct pool *selected, bool saveprio);
+
 extern void discard_work(struct work *work);
 extern void remove_pool(struct pool *pool);
 //extern void write_config(FILE *fcfg);
