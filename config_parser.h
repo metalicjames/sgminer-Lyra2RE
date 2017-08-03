@@ -1,11 +1,8 @@
 #ifndef CONFIG_PARSER_H
 #define CONFIG_PARSER_H
 
-#include "config.h"
-
 #include "miner.h"
 #include "api.h"
-#include "algorithm.h"
 
 //profile structure
 struct profile {
@@ -15,9 +12,9 @@ struct profile {
 
   algorithm_t algorithm;
   const char *devices;
-  const char *intensity;
-  const char *xintensity;
-  const char *rawintensity;
+  char *intensity;
+  char *xintensity;
+  char *rawintensity;
   const char *lookup_gap;
   const char *gpu_engine;
   const char *gpu_memclock;
@@ -43,10 +40,14 @@ extern struct profile default_profile;
 extern struct profile **profiles;
 extern int total_profiles;
 
+/* profile helper functions */
+extern struct profile *get_gpu_profile(int gpuid);
+
 /* option parser functions */
 extern char *set_default_algorithm(const char *arg);
 extern char *set_default_nfactor(const char *arg);
 extern char *set_default_devices(const char *arg);
+extern char *set_default_kernelfile(const char *arg);
 extern char *set_default_lookup_gap(const char *arg);
 extern char *set_default_intensity(const char *arg);
 extern char *set_default_xintensity(const char *arg);
@@ -67,6 +68,7 @@ extern char *set_default_worksize(const char *arg);
 extern char *set_profile_name(const char *arg);
 extern char *set_profile_algorithm(const char *arg);
 extern char *set_profile_devices(const char *arg);
+extern char *set_profile_kernelfile(const char *arg);
 extern char *set_profile_lookup_gap(const char *arg);
 extern char *set_profile_intensity(const char *arg);
 extern char *set_profile_xintensity(const char *arg);
@@ -91,6 +93,7 @@ extern char *set_default_config(const char *arg);
 extern void load_default_config(void);
 
 /* startup functions */
+extern void init_default_profile();
 extern void load_default_profile();
 extern void apply_defaults();
 extern void apply_pool_profiles();
@@ -104,5 +107,10 @@ extern void api_profile_list(struct io_data *io_data, __maybe_unused SOCKETTYPE 
 extern void api_profile_add(struct io_data *io_data, __maybe_unused SOCKETTYPE c, char *param, bool isjson, __maybe_unused char group);
 extern void api_profile_remove(struct io_data *io_data, __maybe_unused SOCKETTYPE c, char *param, bool isjson, __maybe_unused char group);
 extern void api_pool_profile(struct io_data *io_data, __maybe_unused SOCKETTYPE c, char *param, bool isjson, __maybe_unused char group);
+
+/* API/UI config update functions */
+extern void update_config_intensity(struct profile *profile);
+extern void update_config_xintensity(struct profile *profile);
+extern void update_config_rawintensity(struct profile *profile);
 
 #endif // CONFIG_PARSER_H

@@ -1,10 +1,11 @@
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
 m4_define([v_maj], [5])
-m4_define([v_min], [0])
-m4_define([v_mic], [0])
+m4_define([v_min], [6])
+m4_define([v_mic], [1])
+m4_define([v_rev], [nicehash])
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
-m4_define([v_ver], [v_maj.v_min.v_mic])
+m4_ifdef([v_rev], [m4_define([v_ver], [v_maj.v_min.v_mic-v_rev])], [m4_define([v_ver], [v_maj.v_min.v_mic])])
 m4_define([lt_rev], m4_eval(v_maj + v_min))
 m4_define([lt_cur], v_mic)
 m4_define([lt_age], v_min)
@@ -30,6 +31,7 @@ m4_ifdef([v_rel], , [m4_define([v_rel], [])])
 AC_DEFINE_UNQUOTED(SGMINER_MAJOR_VERSION, [v_maj], [Major version])
 AC_DEFINE_UNQUOTED(SGMINER_MINOR_VERSION, [v_min], [Minor version])
 AC_DEFINE_UNQUOTED(SGMINER_MINOR_SUBVERSION, [v_mic], [Micro version])
+AC_DEFINE_UNQUOTED(SGMINER_REVISON, [v_rev], [Revison])
 version_info="lt_rev:lt_cur:lt_age"
 release_info="v_rel"
 AC_SUBST(version_info)
@@ -159,17 +161,16 @@ AC_LINK_IFELSE(
 LIBS=$SAVED_LIBS
 CFLAGS=$SAVED_CFLAGS
 
-has_winpthread=false
-if test "x$have_win32" = xtrue; then
-        has_winpthread=true
-        AC_CHECK_LIB(winpthread, nanosleep, , has_winpthread=false)
-        PTHREAD_LIBS=-lwinpthread
-fi
+has_pthread=false
+AC_CHECK_LIB(pthread, pthread_create, has_pthread=true)
+PTHREAD_LIBS=-lpthread
 
-if test "x$has_winpthread" != xtrue; then
-        AC_CHECK_LIB(pthread, pthread_create, ,
-                AC_MSG_ERROR([Could not find pthread library - please install libpthread]))
-        PTHREAD_LIBS=-lpthread
+if test "x$has_pthread" != xtrue; then
+	if test "x$have_win32" = xtrue; then
+		AC_CHECK_LIB(winpthread, nanosleep, ,
+			AC_MSG_ERROR([Could not find pthread library - please install libpthread]))
+		PTHREAD_LIBS=-lwinpthread
+	fi
 fi
 
 AC_ARG_ENABLE([adl],
@@ -217,6 +218,13 @@ AC_ARG_ENABLE([git-version],
 		[Disable use of git version in version string even if available]),
 		[wantgitver=$enableval], [wantgitver=yes])
 
+AC_ARG_WITH([build_number],
+	[AC_HELP_STRING([--with-build-number], [Specify a build number.])],
+	[BUILD_NUMBER="$withval"]
+	)
+AC_SUBST([BUILD_NUMBER])
+AM_CONDITIONAL([USE_BUILD_NUMBER], [test x$BUILD_NUMBER != x])
+
 curses="auto"
 
 AC_ARG_WITH([curses],
@@ -258,6 +266,7 @@ if test "x$have_sgminer_sdk" = "xtrue"; then
 	fi
 	PKG_CONFIG="${PKG_CONFIG:-pkg-config} --define-variable=arch=$ARCH_DIR --define-variable=target=$target --define-variable=sgminersdkdir=$SGMINER_SDK"
 	PKG_CONFIG_PATH="$SGMINER_SDK/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+	export PKG_CONFIG_PATH
 fi
 
 AC_ARG_ENABLE([libcurl],
@@ -278,6 +287,7 @@ else
 	LIBCURL_LIBS=""
 fi
 AC_SUBST(LIBCURL_LIBS)
+AC_SUBST(LIBCURL_CFLAGS)
 
 # Enable or disable use of git version in version string
 AC_MSG_CHECKING(whether to use git version if available)

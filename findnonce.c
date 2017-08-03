@@ -8,15 +8,12 @@
  * any later version.  See COPYING for more details.
  */
 
-#include "config.h"
-
 #include <stdio.h>
 #include <pthread.h>
 #include <string.h>
 
 #include "findnonce.h"
 #include "algorithm/scrypt.h"
-#include "sph/sph_blake.h"
 
 const uint32_t SHA256_K[64] = {
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
@@ -93,7 +90,7 @@ void precalc_hash(dev_blk_ctx *blk, uint32_t *state, uint32_t *data)
   blk->T1 = blk->fcty_e2 = (rotr(F, 2) ^ rotr(F, 13) ^ rotr(F, 22)) + ((F & G) | (H & (F | G)));
   blk->PreVal4_2 = blk->PreVal4 + blk->T1;
   blk->PreVal0 = blk->PreVal4 + blk->ctx_a;
-  blk->PreW31 = 0x00000280 + (rotr(blk->W16,  7) ^ rotr(blk->W16, 18) ^ (blk->W16 >> 3));
+  blk->PreW31 = 0x00000280 + (rotr(blk->W16, 7) ^ rotr(blk->W16, 18) ^ (blk->W16 >> 3));
   blk->PreW32 = blk->W16 + (rotr(blk->W17, 7) ^ rotr(blk->W17, 18) ^ (blk->W17 >> 3));
   blk->PreW18 = data[2] + (rotr(blk->W16, 17) ^ rotr(blk->W16, 19) ^ (blk->W16 >> 10));
   blk->PreW19 = 0x11002000 + (rotr(blk->W17, 17) ^ rotr(blk->W17, 19) ^ (blk->W17 >> 10));
@@ -192,7 +189,7 @@ static void *postcalc_hash(void *userdata)
    * end of the res[] array */
   if (unlikely(pcd->res[found] & ~found)) {
     applog(LOG_WARNING, "%s%d: invalid nonce count - HW error",
-        thr->cgpu->drv->name, thr->cgpu->device_id);
+      thr->cgpu->drv->name, thr->cgpu->device_id);
     hw_errors++;
     thr->cgpu->hw_errors++;
     pcd->res[found] &= found;
@@ -201,9 +198,9 @@ static void *postcalc_hash(void *userdata)
   for (entry = 0; entry < pcd->res[found]; entry++) {
     uint32_t nonce = pcd->res[entry];
     if (found == 0x0F)
-        nonce = swab32(nonce);
+      nonce = swab32(nonce);
 
-    applog(LOG_DEBUG, "OCL NONCE %u found in slot %d", nonce, entry);
+    applog(LOG_DEBUG, "[THR%d] OCL NONCE %08x (%lu) found in slot %d (found = %d)", thr->id, nonce, nonce, entry, found);
     submit_nonce(thr, pcd->work, nonce);
   }
 
@@ -213,32 +210,9 @@ static void *postcalc_hash(void *userdata)
   return NULL;
 }
 
-/*
-void precalc_hash_blake256(dev_blk_ctx *blk, uint32_t *state, uint32_t *data)
-{
-	blake_state256 S;
-	blake256_init(&S);
-	blake256_update(&S, data);
-
-	blk->ctx_a = S.h[0];
-	blk->ctx_b = S.h[1];
-	blk->ctx_c = S.h[2];
-	blk->ctx_d = S.h[3];
-	blk->ctx_e = S.h[4];
-	blk->ctx_f = S.h[5];
-	blk->ctx_g = S.h[6];
-	blk->ctx_h = S.h[7];
-
-	blk->cty_a = data[16];
-	blk->cty_b = data[17];
-	blk->cty_c = data[18];
-
-}
-*/
-
-
 void postcalc_hash_async(struct thr_info *thr, struct work *work, uint32_t *res)
 {
+	
   struct pc_data *pcd = (struct pc_data *)malloc(sizeof(struct pc_data));
   int buffersize;
 
@@ -250,8 +224,7 @@ void postcalc_hash_async(struct thr_info *thr, struct work *work, uint32_t *res)
   pcd->thr = thr;
   pcd->work = copy_work(work);
   buffersize = BUFFERSIZE;
-
-  memcpy(&pcd->res, res, buffersize);
+   memcpy(&pcd->res, res, buffersize);
 
   if (pthread_create(&pcd->pth, NULL, postcalc_hash, (void *)pcd)) {
     applog(LOG_ERR, "Failed to create postcalc_hash thread");

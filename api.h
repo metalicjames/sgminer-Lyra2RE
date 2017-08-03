@@ -1,8 +1,6 @@
 #ifndef API_H
 #define API_H
 
-#include "config.h"
-
 #include "miner.h"
 
 // BUFSIZ varies on Windows and Linux
@@ -180,6 +178,11 @@
 #define MSG_REMPROFILE 138
 
 #define MSG_CHPOOLPR 139
+
+#define MSG_INVXINT 140
+#define MSG_GPUXINT 141
+#define MSG_INVRAWINT 142
+#define MSG_GPURAWINT 143
 
 enum code_severity {
   SEVERITY_ERR,

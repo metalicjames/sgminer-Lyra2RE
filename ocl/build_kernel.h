@@ -1,8 +1,13 @@
 #ifndef BUILD_KERNEL_H
 #define BUILD_KERNEL_H
 
-#include "ocl.h"
 #include <stdbool.h>
+
+#ifdef __APPLE_CC__
+#include <OpenCL/opencl.h>
+#else
+#include <CL/cl.h>
+#endif
 
 typedef struct _build_kernel_data {
   char source_filename[255];
@@ -17,12 +22,9 @@ typedef struct _build_kernel_data {
   char sgminer_path[255];
   const char *kernel_path;
   size_t work_size;
-  bool has_bit_align;
-  bool patch_bfi;
   float opencl_version;
 } build_kernel_data;
 
-bool needs_bfi_patch(build_kernel_data *data);
 cl_program build_opencl_kernel(build_kernel_data *data, const char *filename);
 bool save_opencl_kernel(build_kernel_data *data, cl_program program);
 void set_base_compiler_options(build_kernel_data *data);

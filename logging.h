@@ -1,7 +1,6 @@
 #ifndef LOGGING_H
 #define LOGGING_H
 
-#include "config.h"
 #include <stdbool.h>
 #include <stdarg.h>
 
@@ -91,5 +90,8 @@ extern void _applog(int prio, const char *str, bool force);
 } while (0)
 
 #endif
+
+extern void __debug(const char *filename, const char *fmt, ...);
+
 
 #endif /* LOGGING_H */
